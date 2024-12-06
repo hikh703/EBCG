@@ -1,13 +1,20 @@
-<script setup lang="ts">
-</script>
-
 <template>
-  <div class="h-full w-full">
-    <button>Hello world</button>
+  <div id="app">
+    <BarcodeGenerator />
   </div>
-
 </template>
 
-<style scoped>
+<script>
+import BarcodeGenerator from './components/BarcodeGenerator.vue';
 
+export default {
+  name: 'App',
+  components: {
+    BarcodeGenerator,
+  },
+};
+</script>
+
+<style>
+/* Global styles if any */
 </style>
