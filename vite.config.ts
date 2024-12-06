@@ -7,7 +7,7 @@ import vueDevTools from 'vite-plugin-vue-devtools'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/EBCG/', // Replace with your repository name
+  base: 'https://github.com/hikh703/EBCG', // Replace with your repository name
   plugins: [
     vue(),
     vueJsx(),
