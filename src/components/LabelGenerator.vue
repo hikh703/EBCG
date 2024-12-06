@@ -81,7 +81,7 @@ const generateLabels = async () => {
     const workbook = XLSX.read(data)
     const firstSheetName = workbook.SheetNames[0]
     const firstSheet = workbook.Sheets[firstSheetName]
-    const jsonData: any[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '', blankrows: true })
+    const jsonData: any[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' })
 
     // Validate columns
     const requiredColumns = ['Nom', 'Valeur Option1', 'Prix']
@@ -93,7 +93,6 @@ const generateLabels = async () => {
       return
     }
 
-    // Ensure all rows are processed
     if (jsonData.length === 0) {
       errorMessage.value = 'Le fichier Excel ne contient aucune ligne.'
       isGenerating.value = false
@@ -109,35 +108,34 @@ const generateLabels = async () => {
     }
     const dateStr = formatDate(today)
 
-    const updatedData = jsonData.map((row, index) => {
+    const zettleData = jsonData.map((row, index) => {
       const identifier = `SELEC${dateStr}${userNumber.value}${index}`
-      row['Code-barres'] = identifier
-      return row
-    })
-
-    const updatedSheet = XLSX.utils.json_to_sheet(updatedData, { skipHeader: false })
-    Object.keys(updatedSheet).forEach(cell => {
-      if (!cell.startsWith('!')) {
-        updatedSheet[cell].z = '@'
-        updatedSheet[cell].t = 's' // Explicitly set as text
-        if (typeof updatedSheet[cell].v === 'number') {
-          updatedSheet[cell].v = String(updatedSheet[cell].v)
-        }
+      return {
+        'Product Name': row['Nom'], // Zettle-Compatible Column
+        'Price (incl. VAT)': row['Prix'], // Zettle-Compatible Column
+        'Barcode': identifier, // Generated Barcode
       }
     })
 
-    workbook.Sheets[firstSheetName] = updatedSheet
+    // Create Zettle-Compatible Sheet
+    const zettleSheet = XLSX.utils.json_to_sheet(zettleData)
+
+    const newWorkbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(newWorkbook, zettleSheet, 'Products')
 
     const zip = new JSZip()
-    for (let i = 0; i < updatedData.length; i++) {
-      const row = updatedData[i]
-      const labelDataURL = await createLabel(row['Nom'], row['Valeur Option1'], row['Prix'], row['Code-barres'])
+
+    // Save Zettle-Compatible Excel File
+    const updatedExcel = XLSX.write(newWorkbook, { bookType: 'xlsx', type: 'array' })
+    zip.file('zettle_file.xlsx', updatedExcel)
+
+    // Generate Labels
+    for (let i = 0; i < zettleData.length; i++) {
+      const row = zettleData[i]
+      const labelDataURL = await createLabel(row['Product Name'], 'Taille : ' + jsonData[i]['Valeur Option1'], row['Price (incl. VAT)'], row['Barcode'])
       const base64Data = labelDataURL.split(',')[1]
       zip.file(`etiquette_${i}.png`, base64Data, { base64: true })
     }
-
-    const updatedExcel = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
-    zip.file('updated_file.xlsx', updatedExcel)
 
     const zipBlob = await zip.generateAsync({ type: 'blob' })
     downloadLink.value = URL.createObjectURL(zipBlob)
@@ -149,64 +147,75 @@ const generateLabels = async () => {
   }
 }
 
-const createLabel = async (nom: string, valeurOption1: string, prix: string, identifier: string): Promise<string> => {
+const createLabel = async (nom: string, taille: string, prix: string, identifier: string): Promise<string> => {
   return new Promise((resolve, reject) => {
-    const dpi = 300
+    const dpi = 300 // High-resolution for printing
     const widthPx = Math.round((60 / 25.4) * dpi) // Convert 60 mm to pixels
     const heightPx = Math.round((30 / 25.4) * dpi) // Convert 30 mm to pixels
 
     const labelDiv = document.createElement('div')
     labelDiv.style.width = `${widthPx}px`
     labelDiv.style.height = `${heightPx}px`
-    labelDiv.style.position = 'absolute'
-    labelDiv.style.left = '-9999px'
-    labelDiv.style.top = '-9999px'
     labelDiv.style.display = 'flex'
     labelDiv.style.flexDirection = 'column'
-    labelDiv.style.justifyContent = 'space-between' // Ensures spacing between items
+    labelDiv.style.justifyContent = 'space-between'
     labelDiv.style.alignItems = 'center'
-    labelDiv.style.border = '1px solid #000'
-    labelDiv.style.backgroundColor = '#fff'
-    labelDiv.style.padding = `${Math.round((2 / 25.4) * dpi)}px`
+    labelDiv.style.backgroundColor = '#fff' // Ensure white background
+    labelDiv.style.padding = '0'
 
-    // Add Nom
+    // Top Section for Text
+    const topDiv = document.createElement('div')
+    topDiv.style.display = 'flex'
+    topDiv.style.flexDirection = 'column'
+    topDiv.style.alignItems = 'center'
+    topDiv.style.justifyContent = 'flex-start' // Align closer to the top
+    topDiv.style.height = '60%' // Decrease height of top section
+    topDiv.style.marginTop = '0' // Ensure no unnecessary margin
+
+    // Add Nom (Name)
     const nomElement = document.createElement('div')
-    nomElement.style.fontSize = `${Math.round((3 / 25.4) * dpi)}px`
+    nomElement.style.fontSize = `${Math.round((4 / 25.4) * dpi)}px`
     nomElement.style.fontWeight = 'bold'
     nomElement.textContent = nom
-    labelDiv.appendChild(nomElement)
+    topDiv.appendChild(nomElement)
 
-    // Add Taille (Valeur Option1)
+    // Add Taille (Size)
     const tailleElement = document.createElement('div')
-    tailleElement.style.fontSize = `${Math.round((2.5 / 25.4) * dpi)}px`
-    tailleElement.textContent = `Taille : ${valeurOption1}`
-    labelDiv.appendChild(tailleElement)
+    tailleElement.style.fontSize = `${Math.round((3 / 25.4) * dpi)}px`
+    tailleElement.textContent = taille
+    topDiv.appendChild(tailleElement)
 
-    // Add Prix with Euro Symbol
+    // Add Prix (Price)
     const prixElement = document.createElement('div')
-    prixElement.style.fontSize = `${Math.round((2.5 / 25.4) * dpi)}px`
+    prixElement.style.fontSize = `${Math.round((3 / 25.4) * dpi)}px`
     prixElement.textContent = `${prix}€`
-    labelDiv.appendChild(prixElement)
+    topDiv.appendChild(prixElement)
 
-    // Spacer to push the barcode to the bottom
-    const spacer = document.createElement('div')
-    spacer.style.flexGrow = '1' // Pushes the barcode to the bottom
-    spacer.style.padding = '5px'
-    labelDiv.appendChild(spacer)
+    labelDiv.appendChild(topDiv)
 
-    // Add Barcode
+    // Bottom Section for Barcode
+    const bottomDiv = document.createElement('div')
+    bottomDiv.style.display = 'flex'
+    bottomDiv.style.justifyContent = 'center'
+    bottomDiv.style.alignItems = 'flex-end' // Align closer to the bottom
+    bottomDiv.style.height = '40%' // Increase height for barcode section
+    bottomDiv.style.marginBottom = `${Math.round((2 / 25.4) * dpi)}px` // Space below the barcode
+
     const barcodeCanvas = document.createElement('canvas')
     JsBarcode(barcodeCanvas, identifier, {
       format: 'CODE128',
       displayValue: false,
-      width: Math.round((0.25 / 25.4) * dpi),
-      height: Math.round((8 / 25.4) * dpi),
-      margin: 4,
+      width: Math.round((0.25 / 25.4) * dpi), // Proper scaling for width
+      height: Math.round((10 / 25.4) * dpi), // Proper scaling for height
+      margin: 0,
     })
-    labelDiv.appendChild(barcodeCanvas)
+    bottomDiv.appendChild(barcodeCanvas)
+
+    labelDiv.appendChild(bottomDiv)
 
     document.body.appendChild(labelDiv)
 
+    // Render the label into a PNG image
     html2canvas(labelDiv, { scale: 1 }).then(canvas => {
       const dataURL = canvas.toDataURL('image/png')
       document.body.removeChild(labelDiv)
@@ -217,5 +226,9 @@ const createLabel = async (nom: string, valeurOption1: string, prix: string, ide
     })
   })
 }
+
+
+
+
 
 </script>
