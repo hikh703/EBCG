@@ -100,52 +100,44 @@ const generateLabels = async () => {
       return
     }
 
-    let codeBarresColIndex = header.indexOf('Code-barres')
-    if (codeBarresColIndex === -1) {
-      codeBarresColIndex = header.length
-      header.push('Code-barres')
-      XLSX.utils.sheet_add_aoa(firstSheet, [header], { origin: 'A1' })
-    }
-
+    const today = new Date()
     const formatDate = (date: Date): string => {
       const dd = String(date.getDate()).padStart(2, '0')
       const mm = String(date.getMonth() + 1).padStart(2, '0')
       const yy = String(date.getFullYear()).slice(-2)
       return `${dd}${mm}${yy}`
     }
-
-    const today = new Date()
     const dateStr = formatDate(today) // DDMMYY
 
-    const zip = new JSZip()
-
-    for (let i = 0; i < jsonData.length; i++) {
-      const row = jsonData[i]
-
-      // Ensure required fields exist in each row
-      if (!row['Nom'] || !row['Valeur Option1'] || !row['Prix']) {
-        errorMessage.value = `Ligne ${i + 2} est invalide ou incomplète.`
-        isGenerating.value = false
-        return
-      }
-
-      const identifier = `SELEC${dateStr}${userNumber.value}${i}`
+    // Add Code-barres to each row and keep original data intact
+    const updatedData = jsonData.map((row, index) => {
+      const identifier = `SELEC${dateStr}${userNumber.value}${index}`
       row['Code-barres'] = identifier
+      return row
+    })
 
-      const cellAddress = XLSX.utils.encode_cell({
-        c: codeBarresColIndex,
-        r: i + 1, // +1 because sheet rows are 0-indexed and first row is header
-      })
-      firstSheet[cellAddress] = { v: identifier }
+    // Explicitly format cells as text
+    const updatedSheet = XLSX.utils.json_to_sheet(updatedData, { skipHeader: false })
+    Object.keys(updatedSheet).forEach(cell => {
+      if (cell.startsWith('!')) return // Skip metadata keys
+      updatedSheet[cell].z = '@' // Format as text
+    })
+    workbook.Sheets[firstSheetName] = updatedSheet
 
-      const labelDataURL = await createLabel(row['Nom'], row['Valeur Option1'], row['Prix'], identifier)
+    // Generate labels
+    const zip = new JSZip()
+    for (let i = 0; i < updatedData.length; i++) {
+      const row = updatedData[i]
+      const labelDataURL = await createLabel(row['Nom'], row['Valeur Option1'], row['Prix'], row['Code-barres'])
       const base64Data = labelDataURL.split(',')[1]
       zip.file(`etiquette_${i}.png`, base64Data, { base64: true })
     }
 
+    // Save updated workbook
     const updatedExcel = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
     zip.file('updated_file.xlsx', updatedExcel)
 
+    // Generate ZIP file
     const zipBlob = await zip.generateAsync({ type: 'blob' })
     downloadLink.value = URL.createObjectURL(zipBlob)
   } catch (error) {
@@ -156,67 +148,77 @@ const generateLabels = async () => {
   }
 }
 
+
 const createLabel = async (nom: string, valeurOption1: string, prix: string, identifier: string): Promise<string> => {
   return new Promise((resolve, reject) => {
-    const labelDiv = document.createElement('div')
-    labelDiv.style.width = `${mmToPx(60)}px`
-    labelDiv.style.height = `${mmToPx(30)}px`
-    labelDiv.style.position = 'absolute'
-    labelDiv.style.left = '-9999px'
-    labelDiv.style.top = '-9999px'
-    labelDiv.style.display = 'flex'
-    labelDiv.style.flexDirection = 'column'
-    labelDiv.style.justifyContent = 'center'
-    labelDiv.style.alignItems = 'center'
-    labelDiv.style.border = '1px solid #000'
-    labelDiv.style.boxSizing = 'border-box'
-    labelDiv.style.backgroundColor = '#ffffff'
-    labelDiv.style.padding = '5px'
+    const dpi = 300; // Set DPI to 300
+    const widthPx = Math.round((60 / 25.4) * dpi); // Convert 60 mm to pixels
+    const heightPx = Math.round((30 / 25.4) * dpi); // Convert 30 mm to pixels
 
-    const nomElement = document.createElement('div')
-    nomElement.style.fontSize = '14px'
-    nomElement.style.fontWeight = 'bold'
-    nomElement.textContent = nom
-    labelDiv.appendChild(nomElement)
+    const labelDiv = document.createElement('div');
+    labelDiv.style.width = `${widthPx}px`;
+    labelDiv.style.height = `${heightPx}px`;
+    labelDiv.style.position = 'absolute';
+    labelDiv.style.left = '-9999px';
+    labelDiv.style.top = '-9999px';
+    labelDiv.style.display = 'flex';
+    labelDiv.style.flexDirection = 'column';
+    labelDiv.style.justifyContent = 'center';
+    labelDiv.style.alignItems = 'center';
+    labelDiv.style.border = '1px solid #000';
+    labelDiv.style.boxSizing = 'border-box';
+    labelDiv.style.backgroundColor = '#ffffff';
+    labelDiv.style.padding = `${Math.round((2 / 25.4) * dpi)}px`;
 
-    const tailleElement = document.createElement('div')
-    tailleElement.style.fontSize = '12px'
-    tailleElement.textContent = `Taille : ${valeurOption1}`
-    labelDiv.appendChild(tailleElement)
+    // Add Nom
+    const nomElement = document.createElement('div');
+    nomElement.style.fontSize = `${Math.round((3.5 / 25.4) * dpi)}px`; // Font size in pixels
+    nomElement.style.fontWeight = 'bold';
+    nomElement.textContent = nom;
+    labelDiv.appendChild(nomElement);
 
-    const prixElement = document.createElement('div')
-    prixElement.style.fontSize = '12px'
-    prixElement.textContent = `${prix}€`
-    labelDiv.appendChild(prixElement)
+    // Add Taille (Valeur Option1)
+    const tailleElement = document.createElement('div');
+    tailleElement.style.fontSize = `${Math.round((2.5 / 25.4) * dpi)}px`; // Font size in pixels
+    tailleElement.textContent = `Taille : ${valeurOption1}`;
+    labelDiv.appendChild(tailleElement);
 
-    const spacer = document.createElement('div')
-    spacer.style.height = '10px'
-    labelDiv.appendChild(spacer)
+    // Add Prix with Euro Symbol
+    const prixElement = document.createElement('div');
+    prixElement.style.fontSize = `${Math.round((2.5 / 25.4) * dpi)}px`; // Font size in pixels
+    prixElement.textContent = `${prix}€`;
+    labelDiv.appendChild(prixElement);
 
-    const barcodeCanvas = document.createElement('canvas')
+    // Add spacing between Prix and Barcode
+    const spacer = document.createElement('div');
+    spacer.style.height = `${Math.round((1.5 / 25.4) * dpi)}px`; // Spacer height in pixels
+    labelDiv.appendChild(spacer);
+
+    // Add Barcode
+    const barcodeCanvas = document.createElement('canvas');
     JsBarcode(barcodeCanvas, identifier, {
       format: 'CODE128',
       displayValue: false,
-      width: 1,
-      height: 30,
+      width: Math.round((1 / 25.4) * dpi), // Adjusted width for 300 DPI
+      height: Math.round((15 / 25.4) * dpi), // Barcode height in pixels
       margin: 2,
-    })
-    labelDiv.appendChild(barcodeCanvas)
+    });
+    labelDiv.appendChild(barcodeCanvas);
 
-    document.body.appendChild(labelDiv)
+    document.body.appendChild(labelDiv);
 
-    html2canvas(labelDiv, { scale: 2 })
-      .then(canvas => {
-        const dataURL = canvas.toDataURL('image/png')
-        document.body.removeChild(labelDiv)
-        resolve(dataURL)
-      })
-      .catch(err => {
-        document.body.removeChild(labelDiv)
-        reject(err)
-      })
-  })
-}
+    html2canvas(labelDiv, { scale: 1 }).then(canvas => {
+      const dataURL = canvas.toDataURL('image/png');
+      document.body.removeChild(labelDiv);
+      resolve(dataURL);
+    }).catch(err => {
+      document.body.removeChild(labelDiv);
+      reject(err);
+    });
+  });
+};
+
+
 
 const mmToPx = (mm: number, dpi: number = 96): number => {
   return Math.round((mm / 25.4) * dpi)
