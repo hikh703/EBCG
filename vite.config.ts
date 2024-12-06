@@ -1,17 +1,18 @@
-// vite.config.js
+// vite.config.ts
 import { fileURLToPath, URL } from 'node:url'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueJsx from '@vitejs/plugin-vue-jsx'
-import vueDevTools from 'vite-plugin-vue-devtools' 
+// Consider removing vueDevTools for production builds
+// import vueDevTools from 'vite-plugin-vue-devtools' 
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: 'https://github.com/hikh703/EBCG/', // Replace with your repository name
+  base: '/EBCG/', // Set to your repository name
   plugins: [
     vue(),
     vueJsx(),
-    vueDevTools(),
+    // vueDevTools(), // Optional: Remove if not needed in production
   ],
   resolve: {
     alias: {
