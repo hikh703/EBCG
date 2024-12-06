@@ -81,7 +81,7 @@ const generateLabels = async () => {
     const workbook = XLSX.read(data)
     const firstSheetName = workbook.SheetNames[0]
     const firstSheet = workbook.Sheets[firstSheetName]
-    const jsonData: any[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' })
+    const jsonData: any[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '', blankrows: true })
 
     // Validate columns
     const requiredColumns = ['Nom', 'Valeur Option1', 'Prix']
@@ -119,6 +119,7 @@ const generateLabels = async () => {
     Object.keys(updatedSheet).forEach(cell => {
       if (!cell.startsWith('!')) {
         updatedSheet[cell].z = '@'
+        updatedSheet[cell].t = 's' // Explicitly set as text
         if (typeof updatedSheet[cell].v === 'number') {
           updatedSheet[cell].v = String(updatedSheet[cell].v)
         }
@@ -151,8 +152,8 @@ const generateLabels = async () => {
 const createLabel = async (nom: string, valeurOption1: string, prix: string, identifier: string): Promise<string> => {
   return new Promise((resolve, reject) => {
     const dpi = 300
-    const widthPx = Math.round((60 / 25.4) * dpi)
-    const heightPx = Math.round((30 / 25.4) * dpi)
+    const widthPx = Math.round((60 / 25.4) * dpi) // Convert 60 mm to pixels
+    const heightPx = Math.round((30 / 25.4) * dpi) // Convert 30 mm to pixels
 
     const labelDiv = document.createElement('div')
     labelDiv.style.width = `${widthPx}px`
@@ -162,39 +163,45 @@ const createLabel = async (nom: string, valeurOption1: string, prix: string, ide
     labelDiv.style.top = '-9999px'
     labelDiv.style.display = 'flex'
     labelDiv.style.flexDirection = 'column'
+    labelDiv.style.justifyContent = 'space-between' // Ensures spacing between items
     labelDiv.style.alignItems = 'center'
     labelDiv.style.border = '1px solid #000'
     labelDiv.style.backgroundColor = '#fff'
     labelDiv.style.padding = `${Math.round((2 / 25.4) * dpi)}px`
 
+    // Add Nom
     const nomElement = document.createElement('div')
     nomElement.style.fontSize = `${Math.round((3 / 25.4) * dpi)}px`
     nomElement.style.fontWeight = 'bold'
-    nomElement.style.marginBottom = `${Math.round((0.5 / 25.4) * dpi)}px` // Reduced spacing
     nomElement.textContent = nom
     labelDiv.appendChild(nomElement)
 
     // Add Taille (Valeur Option1)
     const tailleElement = document.createElement('div')
     tailleElement.style.fontSize = `${Math.round((2.5 / 25.4) * dpi)}px`
-    tailleElement.style.marginBottom = `${Math.round((0.5 / 25.4) * dpi)}px` // Reduced spacing
     tailleElement.textContent = `Taille : ${valeurOption1}`
     labelDiv.appendChild(tailleElement)
 
     // Add Prix with Euro Symbol
     const prixElement = document.createElement('div')
     prixElement.style.fontSize = `${Math.round((2.5 / 25.4) * dpi)}px`
-    prixElement.style.marginBottom = `${Math.round((1 / 25.4) * dpi)}px` // Slightly more spacing to separate from the barcode
     prixElement.textContent = `${prix}€`
     labelDiv.appendChild(prixElement)
 
+    // Spacer to push the barcode to the bottom
+    const spacer = document.createElement('div')
+    spacer.style.flexGrow = '1' // Pushes the barcode to the bottom
+    spacer.style.padding = '5px'
+    labelDiv.appendChild(spacer)
+
+    // Add Barcode
     const barcodeCanvas = document.createElement('canvas')
     JsBarcode(barcodeCanvas, identifier, {
       format: 'CODE128',
       displayValue: false,
       width: Math.round((0.25 / 25.4) * dpi),
       height: Math.round((8 / 25.4) * dpi),
-      margin: 2,
+      margin: 4,
     })
     labelDiv.appendChild(barcodeCanvas)
 
@@ -210,4 +217,5 @@ const createLabel = async (nom: string, valeurOption1: string, prix: string, ide
     })
   })
 }
+
 </script>
