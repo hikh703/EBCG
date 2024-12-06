@@ -108,35 +108,31 @@ const generateLabels = async () => {
     }
     const dateStr = formatDate(today)
 
-    const zettleData = jsonData.map((row, index) => {
-      const identifier = `SELEC${dateStr}${userNumber.value}${index}`
-      return {
-        'Product Name': row['Nom'], // Zettle-Compatible Column
-        'Price (incl. VAT)': row['Prix'], // Zettle-Compatible Column
-        'Barcode': identifier, // Generated Barcode
-      }
-    })
-
-    // Create Zettle-Compatible Sheet
-    const zettleSheet = XLSX.utils.json_to_sheet(zettleData)
-
-    const newWorkbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(newWorkbook, zettleSheet, 'Products')
-
     const zip = new JSZip()
 
-    // Save Zettle-Compatible Excel File
-    const updatedExcel = XLSX.write(newWorkbook, { bookType: 'xlsx', type: 'array' })
-    zip.file('zettle_file.xlsx', updatedExcel)
+    // Update Excel and Generate Labels
+    for (let i = 0; i < jsonData.length; i++) {
+      const row = jsonData[i]
+      const identifier = `SELEC${dateStr}${userNumber.value}${i}`
 
-    // Generate Labels
-    for (let i = 0; i < zettleData.length; i++) {
-      const row = zettleData[i]
-      const labelDataURL = await createLabel(row['Product Name'], 'Taille : ' + jsonData[i]['Valeur Option1'], row['Price (incl. VAT)'], row['Barcode'])
+      // Update Code-barres column in the Excel row
+      row['Code-barres'] = identifier
+
+      // Generate label image
+      const labelDataURL = await createLabel(row['Nom'], `Taille : ${row['Valeur Option1']}`, row['Prix'], identifier)
       const base64Data = labelDataURL.split(',')[1]
       zip.file(`etiquette_${i}.png`, base64Data, { base64: true })
     }
 
+    // Update Excel sheet with the modified data
+    const updatedSheet = XLSX.utils.json_to_sheet(jsonData, { skipHeader: false })
+    workbook.Sheets[firstSheetName] = updatedSheet
+
+    // Save the updated Excel file in the ZIP
+    const updatedExcel = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+    zip.file('updated_file.xlsx', updatedExcel)
+
+    // Generate ZIP file
     const zipBlob = await zip.generateAsync({ type: 'blob' })
     downloadLink.value = URL.createObjectURL(zipBlob)
   } catch (error) {
@@ -146,6 +142,7 @@ const generateLabels = async () => {
     isGenerating.value = false
   }
 }
+
 
 const createLabel = async (nom: string, taille: string, prix: string, identifier: string): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -174,20 +171,19 @@ const createLabel = async (nom: string, taille: string, prix: string, identifier
 
     // Add Nom (Name)
     const nomElement = document.createElement('div')
-    nomElement.style.fontSize = `${Math.round((4 / 25.4) * dpi)}px`
-    nomElement.style.fontWeight = 'bold'
+    nomElement.style.fontSize = `${Math.round((3 / 25.4) * dpi)}px`
     nomElement.textContent = nom
     topDiv.appendChild(nomElement)
 
     // Add Taille (Size)
     const tailleElement = document.createElement('div')
-    tailleElement.style.fontSize = `${Math.round((3 / 25.4) * dpi)}px`
+    tailleElement.style.fontSize = `${Math.round((2.5 / 25.4) * dpi)}px`
     tailleElement.textContent = taille
     topDiv.appendChild(tailleElement)
 
     // Add Prix (Price)
     const prixElement = document.createElement('div')
-    prixElement.style.fontSize = `${Math.round((3 / 25.4) * dpi)}px`
+    prixElement.style.fontSize = `${Math.round((2.5 / 25.4) * dpi)}px`
     prixElement.textContent = `${prix}€`
     topDiv.appendChild(prixElement)
 
@@ -198,8 +194,8 @@ const createLabel = async (nom: string, taille: string, prix: string, identifier
     bottomDiv.style.display = 'flex'
     bottomDiv.style.justifyContent = 'center'
     bottomDiv.style.alignItems = 'flex-end' // Align closer to the bottom
-    bottomDiv.style.height = '40%' // Increase height for barcode section
-    bottomDiv.style.marginBottom = `${Math.round((2 / 25.4) * dpi)}px` // Space below the barcode
+    bottomDiv.style.height = '35%' // Increase height for barcode section
+    bottomDiv.style.marginBottom = `${Math.round((3 / 25.4) * dpi)}px` // Space below the barcode
 
     const barcodeCanvas = document.createElement('canvas')
     JsBarcode(barcodeCanvas, identifier, {
