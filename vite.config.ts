@@ -8,7 +8,7 @@ import vueJsx from '@vitejs/plugin-vue-jsx'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/EBCG/dist', // Set to your repository name
+  base: './', // Set to your repository name
   plugins: [
     vue(),
     vueJsx(),
