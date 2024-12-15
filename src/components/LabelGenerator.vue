@@ -30,7 +30,7 @@
     <div v-if="downloadLink" class="mt-4">
       <a
         :href="downloadLink"
-        download="etiquettes.zip"
+        :download="`etiquettes_portant_${userNumber}.zip`"
         class="bg-green-500 text-white px-4 py-2 rounded"
       >
         Télécharger les Étiquettes
@@ -78,15 +78,22 @@ const generateLabels = async () => {
 
   try {
     const data = await file.value.arrayBuffer()
-    const workbook = XLSX.read(data)
+    const workbook = XLSX.read(data, { cellDates: true, cellNF: false, cellText: false })
     const firstSheetName = workbook.SheetNames[0]
-    const firstSheet = workbook.Sheets[firstSheetName]
-    const jsonData: any[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' })
+    const sheet = workbook.Sheets[firstSheetName]
 
-    // Validate columns
-    const requiredColumns = ['Nom', 'Valeur Option1', 'Prix']
-    const header = XLSX.utils.sheet_to_json(firstSheet, { header: 1 })[0]
-    const missingColumns = requiredColumns.filter(col => !header.includes(col))
+    const jsonData: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' })
+
+    const headerRow = XLSX.utils.sheet_to_json(sheet, { header: 1 })[0]
+    const codeBarresIndex = headerRow.indexOf('Code-barres')
+    if (codeBarresIndex === -1) {
+      errorMessage.value = 'La colonne "Code-barres" est introuvable.'
+      isGenerating.value = false
+      return
+    }
+
+    const requiredColumns = ['Nom', 'Valeur Option1', 'Prix', 'Code-barres']
+    const missingColumns = requiredColumns.filter(col => !headerRow.includes(col))
     if (missingColumns.length > 0) {
       errorMessage.value = `Colonnes manquantes : ${missingColumns.join(', ')}`
       isGenerating.value = false
@@ -110,29 +117,38 @@ const generateLabels = async () => {
 
     const zip = new JSZip()
 
-    // Update Excel and Generate Labels
+    const codeBarresColLetter = XLSX.utils.encode_col(codeBarresIndex)
+    const range = XLSX.utils.decode_range(sheet['!ref'] as string)
+
+    // If row 1 is headers, data starts on row 2 in Excel terms:
+    const dataStartRow = range.s.r + 2 // range.s.r is typically 0 if the first row is headers
+
     for (let i = 0; i < jsonData.length; i++) {
       const row = jsonData[i]
       const identifier = `SELEC${dateStr}${userNumber.value}${i}`
 
-      // Update Code-barres column in the Excel row
-      row['Code-barres'] = identifier
+      // Write the Code-barres value
+      const cellAddress = codeBarresColLetter + (dataStartRow + i)
+      if (!sheet[cellAddress]) {
+        sheet[cellAddress] = { t: 's', v: identifier }
+      } else {
+        sheet[cellAddress].v = identifier
+      }
 
-      // Generate label image
+      // Generate the label image
       const labelDataURL = await createLabel(row['Nom'], `Taille : ${row['Valeur Option1']}`, row['Prix'], identifier)
       const base64Data = labelDataURL.split(',')[1]
-      zip.file(`etiquette_${i}.png`, base64Data, { base64: true })
+
+      // Use the product name in the filename
+      // Replace spaces or any special chars if needed, but user did not request that:
+      const productName = row['Nom']
+      zip.file(`etiquette_${productName}.png`, base64Data, { base64: true })
     }
 
-    // Update Excel sheet with the modified data
-    const updatedSheet = XLSX.utils.json_to_sheet(jsonData, { skipHeader: false })
-    workbook.Sheets[firstSheetName] = updatedSheet
-
-    // Save the updated Excel file in the ZIP
     const updatedExcel = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
-    zip.file('updated_file.xlsx', updatedExcel)
+    // Use userNumber in the Excel file name
+    zip.file(`portant_${userNumber.value}.xlsx`, updatedExcel)
 
-    // Generate ZIP file
     const zipBlob = await zip.generateAsync({ type: 'blob' })
     downloadLink.value = URL.createObjectURL(zipBlob)
   } catch (error) {
@@ -143,88 +159,113 @@ const generateLabels = async () => {
   }
 }
 
-
 const createLabel = async (nom: string, taille: string, prix: string, identifier: string): Promise<string> => {
   return new Promise((resolve, reject) => {
-    const dpi = 300 // High-resolution for printing
-    const widthPx = Math.round((60 / 25.4) * dpi) // Convert 60 mm to pixels
-    const heightPx = Math.round((30 / 25.4) * dpi) // Convert 30 mm to pixels
+    const dpi = 300;
+    const widthPx = Math.round((60 / 25.4) * dpi);
+    const heightPx = Math.round((30 / 25.4) * dpi);
 
-    const labelDiv = document.createElement('div')
-    labelDiv.style.width = `${widthPx}px`
-    labelDiv.style.height = `${heightPx}px`
-    labelDiv.style.display = 'flex'
-    labelDiv.style.flexDirection = 'column'
-    labelDiv.style.justifyContent = 'space-between'
-    labelDiv.style.alignItems = 'center'
-    labelDiv.style.backgroundColor = '#fff' // Ensure white background
-    labelDiv.style.padding = '0'
+    const topOffset = 0;    
+    const bottomOffset = 20;
 
-    // Top Section for Text
-    const topDiv = document.createElement('div')
-    topDiv.style.display = 'flex'
-    topDiv.style.flexDirection = 'column'
-    topDiv.style.alignItems = 'center'
-    topDiv.style.justifyContent = 'flex-start' // Align closer to the top
-    topDiv.style.height = '60%' // Decrease height of top section
-    topDiv.style.marginTop = '0' // Ensure no unnecessary margin
+    const labelDiv = document.createElement('div');
+    labelDiv.style.width = `${widthPx}px`;
+    labelDiv.style.height = `${heightPx}px`;
+    labelDiv.style.position = 'relative';
+    labelDiv.style.backgroundColor = '#fff';
+    labelDiv.style.overflow = 'hidden';
 
-    // Add Nom (Name)
-    const nomElement = document.createElement('div')
-    nomElement.style.fontSize = `${Math.round((3 / 25.4) * dpi)}px`
-    nomElement.textContent = nom
-    topDiv.appendChild(nomElement)
+    let nameFontSize = Math.round((3 / 25.4) * dpi);
+    let otherFontSize = Math.round((3 / 25.4) * dpi);
 
-    // Add Taille (Size)
-    const tailleElement = document.createElement('div')
-    tailleElement.style.fontSize = `${Math.round((2.5 / 25.4) * dpi)}px`
-    tailleElement.textContent = taille
-    topDiv.appendChild(tailleElement)
+    const topDiv = document.createElement('div');
+    topDiv.style.position = 'absolute';
+    topDiv.style.top = `${topOffset}px`;
+    topDiv.style.left = '0';
+    topDiv.style.width = '100%';
+    topDiv.style.display = 'flex';
+    topDiv.style.flexDirection = 'column';
+    topDiv.style.justifyContent = 'flex-start';
+    topDiv.style.alignItems = 'center'; 
+    topDiv.style.textAlign = 'center';
+    topDiv.style.paddingLeft = '10px'; 
+    topDiv.style.paddingRight = '10px'; 
+    topDiv.style.boxSizing = 'border-box';
+    topDiv.style.whiteSpace = 'normal';
+    topDiv.style.wordBreak = 'break-word';
 
-    // Add Prix (Price)
-    const prixElement = document.createElement('div')
-    prixElement.style.fontSize = `${Math.round((2.5 / 25.4) * dpi)}px`
-    prixElement.textContent = `${prix}€`
-    topDiv.appendChild(prixElement)
+    const nomElement = document.createElement('div');
+    nomElement.style.fontSize = `${nameFontSize}px`;
+    nomElement.style.lineHeight = '1.2em';
+    nomElement.style.textAlign = 'center';
+    nomElement.textContent = nom;
 
-    labelDiv.appendChild(topDiv)
+    const tailleElement = document.createElement('div');
+    tailleElement.style.fontSize = `${otherFontSize}px`;
+    tailleElement.style.lineHeight = '1.2em';
+    tailleElement.style.textAlign = 'center';
+    tailleElement.textContent = taille;
+    tailleElement.style.paddingTop = '15px'
 
-    // Bottom Section for Barcode
-    const bottomDiv = document.createElement('div')
-    bottomDiv.style.display = 'flex'
-    bottomDiv.style.justifyContent = 'center'
-    bottomDiv.style.alignItems = 'flex-end' // Align closer to the bottom
-    bottomDiv.style.height = '35%' // Increase height for barcode section
-    bottomDiv.style.marginBottom = `${Math.round((3 / 25.4) * dpi)}px` // Space below the barcode
+    const prixElement = document.createElement('div');
+    prixElement.style.fontSize = `${otherFontSize}px`;
+    prixElement.style.lineHeight = '1.2em';
+    prixElement.style.textAlign = 'center';
+    prixElement.style.paddingTop = '15px'
+    prixElement.textContent = `${prix}€`;
 
-    const barcodeCanvas = document.createElement('canvas')
+    topDiv.appendChild(nomElement);
+    topDiv.appendChild(tailleElement);
+    topDiv.appendChild(prixElement);
+    labelDiv.appendChild(topDiv);
+
+    const bottomDiv = document.createElement('div');
+    bottomDiv.style.position = 'absolute';
+    bottomDiv.style.bottom = `${bottomOffset}px`;
+    bottomDiv.style.left = '0';
+    bottomDiv.style.width = '100%';
+    bottomDiv.style.display = 'flex';
+    bottomDiv.style.justifyContent = 'center'; 
+    bottomDiv.style.alignItems = 'flex-end';
+    bottomDiv.style.boxSizing = 'border-box';
+
+    const barcodeCanvas = document.createElement('canvas');
     JsBarcode(barcodeCanvas, identifier, {
       format: 'CODE128',
       displayValue: false,
-      width: Math.round((0.25 / 25.4) * dpi), // Proper scaling for width
-      height: Math.round((10 / 25.4) * dpi), // Proper scaling for height
+      width: Math.round((0.25 / 25.4) * dpi),
+      height: Math.round((10 / 25.4) * dpi),
       margin: 0,
-    })
-    bottomDiv.appendChild(barcodeCanvas)
+    });
+    bottomDiv.appendChild(barcodeCanvas);
+    labelDiv.appendChild(bottomDiv);
 
-    labelDiv.appendChild(bottomDiv)
+    document.body.appendChild(labelDiv);
 
-    document.body.appendChild(labelDiv)
+    const fitText = () => {
+      const lines = Math.ceil(nomElement.scrollHeight / parseFloat(window.getComputedStyle(nomElement).lineHeight));
+      const maxLines = 2;
+      if (lines > maxLines && nameFontSize > 5) {
+        nameFontSize -= 1;
+        otherFontSize -= 1;
+        nomElement.style.fontSize = `${nameFontSize}px`;
+        tailleElement.style.fontSize = `${otherFontSize}px`;
+        prixElement.style.fontSize = `${otherFontSize}px`;
+        fitText();
+      }
+    };
 
-    // Render the label into a PNG image
-    html2canvas(labelDiv, { scale: 1 }).then(canvas => {
-      const dataURL = canvas.toDataURL('image/png')
-      document.body.removeChild(labelDiv)
-      resolve(dataURL)
-    }).catch(err => {
-      document.body.removeChild(labelDiv)
-      reject(err)
-    })
-  })
+    setTimeout(() => {
+      fitText();
+      html2canvas(labelDiv, { scale: 1 }).then(canvas => {
+        const dataURL = canvas.toDataURL('image/png');
+        document.body.removeChild(labelDiv);
+        resolve(dataURL);
+      }).catch(err => {
+        document.body.removeChild(labelDiv);
+        reject(err);
+      });
+    }, 0);
+  });
 }
-
-
-
-
-
 </script>
