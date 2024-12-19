@@ -136,6 +136,19 @@ const generateLabels = async () => {
       }
 
       // Generate the label image
+      
+      if (row['Nom'] == ""){
+        row['Nom'] = "-"
+      }
+      if (row['Valeur Option1'] == ""){
+        row['Valeur Option1'] = "-"
+      }
+      if (row['Prix'] == ""){
+        row['Prix'] = "-"
+      }
+      if (row['Valeur Option2'] == ""){
+        row['Valeur Option2'] = "-"
+      }
       const labelDataURL = await createLabel(row['Nom'], `Taille : ${row['Valeur Option1']}`, row['Prix'], identifier)
       const base64Data = labelDataURL.split(',')[1]
 
@@ -161,6 +174,15 @@ const generateLabels = async () => {
 
 const createLabel = async (nom: string, taille: string, prix: string, identifier: string): Promise<string> => {
   return new Promise((resolve, reject) => {
+    if (nom == '-'){
+      nom = ""
+    }
+    if (taille == '-'){
+      taille = ""
+    }
+    if (prix == '-'){
+      prix = ""
+    }
     const dpi = 300;
     const widthPx = Math.round((60 / 25.4) * dpi);
     const heightPx = Math.round((30 / 25.4) * dpi);
