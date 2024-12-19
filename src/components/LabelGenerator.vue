@@ -60,6 +60,10 @@ const handleFileUpload = (event: Event) => {
   }
 }
 
+const replaceEmptyWithDash = (value: string): string => {
+  return value === "" ? "-" : value
+}
+
 const generateLabels = async () => {
   errorMessage.value = null
   downloadLink.value = null
@@ -127,37 +131,45 @@ const generateLabels = async () => {
       const row = jsonData[i]
       const identifier = `SELEC${dateStr}${userNumber.value}${i}`
 
+      // Replace empty cells with "-"
+      row['Nom'] = replaceEmptyWithDash(row['Nom'])
+      row['Valeur Option1'] = replaceEmptyWithDash(row['Valeur Option1'])
+      row['Prix'] = replaceEmptyWithDash(row['Prix'])
+      row['Valeur Option2'] = replaceEmptyWithDash(row['Valeur Option2'])
+
       // Write the Code-barres value
       const cellAddress = codeBarresColLetter + (dataStartRow + i)
-      if (!sheet[cellAddress]) {
-        sheet[cellAddress] = { t: 's', v: identifier }
-      } else {
-        sheet[cellAddress].v = identifier
-      }
+      sheet[cellAddress] = { t: 's', v: identifier }
+
+      // Write back the modified row to the sheet (excluding 'Code-barres')
+      headerRow.forEach((header, colIndex) => {
+        if (header === 'Code-barres') return // Skip 'Code-barres' as it's already handled
+        const colLetter = XLSX.utils.encode_col(colIndex)
+        const currentRow = dataStartRow + i
+        const cell = sheet[colLetter + currentRow]
+        if (cell) {
+          cell.v = row[header]
+          cell.t = 's' // Assuming all values are strings
+        } else {
+          sheet[colLetter + currentRow] = { t: 's', v: row[header] }
+        }
+      })
+
+      // Determine display values for labels
+      const displayNom = row['Nom'] !== '-' ? row['Nom'] : ''
+      const displayTaille = row['Valeur Option1'] !== '-' ? `Taille : ${row['Valeur Option1']}` : 'Taille :'
+      const displayPrix = row['Prix'] !== '-' ? `${row['Prix']}€` : ''
 
       // Generate the label image
-      
-      if (row['Nom'] == ""){
-        row['Nom'] = "-"
-      }
-      if (row['Valeur Option1'] == ""){
-        row['Valeur Option1'] = "-"
-      }
-      if (row['Prix'] == ""){
-        row['Prix'] = "-"
-      }
-      if (row['Valeur Option2'] == ""){
-        row['Valeur Option2'] = "-"
-      }
-      const labelDataURL = await createLabel(row['Nom'], `Taille : ${row['Valeur Option1']}`, row['Prix'], identifier)
+      const labelDataURL = await createLabel(displayNom, displayTaille, displayPrix, identifier)
       const base64Data = labelDataURL.split(',')[1]
 
-      // Use the product name in the filename
-      // Replace spaces or any special chars if needed, but user did not request that:
-      const productName = row['Nom']
+      // Use the product name in the filename, avoid empty filenames
+      const productName = row['Nom'] !== '-' ? row['Nom'] : `Produit_${i}`
       zip.file(`etiquette_${productName}.png`, base64Data, { base64: true })
     }
 
+    // Write the updated workbook to Excel
     const updatedExcel = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
     // Use userNumber in the Excel file name
     zip.file(`portant_${userNumber.value}.xlsx`, updatedExcel)
@@ -174,15 +186,6 @@ const generateLabels = async () => {
 
 const createLabel = async (nom: string, taille: string, prix: string, identifier: string): Promise<string> => {
   return new Promise((resolve, reject) => {
-    if (nom == '-'){
-      nom = ""
-    }
-    if (taille == '-'){
-      taille = ""
-    }
-    if (prix == '-'){
-      prix = ""
-    }
     const dpi = 300;
     const widthPx = Math.round((60 / 25.4) * dpi);
     const heightPx = Math.round((30 / 25.4) * dpi);
@@ -234,7 +237,7 @@ const createLabel = async (nom: string, taille: string, prix: string, identifier
     prixElement.style.lineHeight = '1.2em';
     prixElement.style.textAlign = 'center';
     prixElement.style.paddingTop = '15px'
-    prixElement.textContent = `${prix}€`;
+    prixElement.textContent = prix;
 
     topDiv.appendChild(nomElement);
     topDiv.appendChild(tailleElement);
